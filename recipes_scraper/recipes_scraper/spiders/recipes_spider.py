@@ -9,8 +9,8 @@ class NewsSpider(scrapy.Spider):
 
     def parse(self, response):
         self.logger.info(f'Parsing page: {response.url}')
-        recipe_pattern = r'/en/\d+-[\w_]+\.html$'
-        category_pattern = r'/en/category/\d+-[\w-]+\.html(?:/\d+)?$'
+        recipe_pattern = r'/en/\d+[^/]+\.html$'
+        category_pattern = r'/en/category/\d+[^/]+\.html(?:/\d+)?$'
         
         links_found = 0
         recipes_found = 0
