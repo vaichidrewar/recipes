@@ -22,22 +22,35 @@ class RecipeEnrichment(BaseModel):
     meal_type_suitability: List[str]
     dietary_restrictions: List[str]
     categories: dict = Field(..., description="Dictionary containing meal type, dish type, cooking method, and region")
+    original_categories: List[str] = Field([], description="Original list of categories from the input recipe")
+    
+    # Meal prep guidance
+    meal_prep_guidance: Optional[dict] = Field(None, description="Guidance for meal prep that can be done ahead of time, including components that can be prepared in advance and storage instructions")
+    
+    # URL fields
+    recipe_url: Optional[str] = Field(None, description="URL of the original recipe page")
+    image_url: Optional[str] = Field(None, description="URL of the main recipe image")
+    video_url: Optional[str] = Field(None, description="URL of the recipe video if available")
+    additional_images: Optional[List[str]] = Field(None, description="List of additional image URLs related to the recipe")
 
 class Recipe(BaseModel):
     """Model for the complete recipe data."""
-    url: Optional[str] = None
     title: str
     summary: Optional[str] = None
-    text: str  # Full recipe text
+    text: Optional[str] = None
     ingredients: List[str] = []
     instructions: List[str] = []
-    publish_date: Optional[datetime] = None
     keywords: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     categories: Optional[List[str]] = None
-    meta_description: Optional[str] = None
-    image: Optional[str] = None
     enrichment: Optional[RecipeEnrichment] = None
+    
+    # URL fields
+    url: Optional[str] = None
+    top_image: Optional[str] = None
+    meta_img: Optional[str] = None
+    images: Optional[List[str]] = None
+    movies: Optional[List[str]] = None
 
     @staticmethod
     def _extract_section(text: str, section_name: str) -> List[str]:
@@ -96,116 +109,84 @@ class Recipe(BaseModel):
 
         return self
 
-class EnrichmentPrompt(BaseModel):
-    """Model for the prompt to be sent to the LLM."""
-    system_message: str = """You are a culinary expert with deep knowledge of Indian cuisine. 
-    Your task is to analyze recipes and provide enrichment data in valid JSON format.
-    You must ONLY respond with a JSON object that matches the RecipeEnrichment model structure.
+class EnrichmentPrompt:
+    """Prompt templates for recipe enrichment."""
     
-    IMPORTANT RULES:
-    1. DO NOT modify the ingredients or instructions. Use them exactly as provided in the input.
-    2. Generate an enticing, concise summary that accurately describes the dish based on the provided information.
-    3. Do not include any explanations or text outside the JSON object.
-    4. Ensure all numbers are integers and boolean values are true/false (lowercase).
-    
-    For scores, use these descriptive values:
-    - Healthiness: "Very Healthy", "Healthy", "Moderate", "Unhealthy", "Very Unhealthy"
-    - Ease of Cooking: "Very Easy", "Easy", "Moderate", "Difficult", "Very Difficult"
-    - Ingredient Availability: "Very High", "High", "Moderate", "Low", "Very Low"
-    
-    Example format:
-    {
-        "title": "Traditional South Indian Idli",
-        "generated_summary": "A delightful South Indian breakfast classic featuring soft, steamed rice cakes with a light, airy texture. Perfect for a healthy start to your day, served with traditional coconut chutney.",
-        "ingredients": [
-            "2 cups idli rice",
-            "1 cup urad dal",
-            "1 teaspoon fenugreek seeds",
-            "Salt to taste"
-        ],
-        "instructions": [
-            "Soak rice and dal separately for 4-6 hours",
-            "Grind to smooth batter",
-            "Ferment for 8 hours",
-            "Steam in idli molds for 10 minutes"
-        ],
-        "healthiness_score": "Healthy",
-        "ease_of_cooking_score": "Easy",
-        "indian_ingredient_availability_score": "Very High",
-        "prep_time_minutes": 30,
-        "prep_time_breakdown": {
-            "vegetable_chopping": 15,
-            "spice_measuring": 5,
-            "mixing_ingredients": 10
-        },
-        "prep_notes": "Ensure ingredients are at room temperature",
-        "total_cooking_time_minutes": 45,
-        "cooking_time_breakdown": {
-            "initial_heating": 5,
-            "sauteing_vegetables": 10,
-            "simmering": 25,
-            "final_garnishing": 5
-        },
-        "soaking_required": false,
-        "soaking_time_minutes": null,
-        "protein_level": "Medium",
-        "meal_type_suitability": ["Breakfast", "Snack"],
-        "dietary_restrictions": ["Vegetarian"],
-        "categories": {
-            "meal_type": ["Breakfast"],
-            "dish_type": ["Snack"],
-            "cooking_method": ["Steaming"],
-            "region": ["South Indian"]
-        }
-    }"""
-    
-    user_message_template: str = """Analyze this recipe and respond ONLY with a JSON object containing the enrichment data.
-    Do not include any other text or explanations.
-    
-    IMPORTANT: Use the ingredients and instructions EXACTLY as provided. Do not modify, clean, or rewrite them.
-    
-    Title: {title}
-    Summary: {summary}
-    Keywords: {keywords}
-    Tags: {tags}
-    Categories: {categories}
-    
-    Full Recipe Text:
-    {text}
-    
-    Ingredients:
-    {ingredients}
-    
-    Instructions:
-    {instructions}
-    
-    Required JSON fields:
-    - title (string): Original recipe title
-    - generated_summary (string): Write an enticing, concise description (2-3 sentences) that makes the dish appealing
-    - ingredients (array of strings): Use EXACTLY as provided in the input
-    - instructions (array of strings): Use EXACTLY as provided in the input
-    - healthiness_score (string): Must be one of: "Very Healthy", "Healthy", "Moderate", "Unhealthy", "Very Unhealthy"
-    - ease_of_cooking_score (string): Must be one of: "Very Easy", "Easy", "Moderate", "Difficult", "Very Difficult"
-    - indian_ingredient_availability_score (string): Must be one of: "Very High", "High", "Moderate", "Low", "Very Low"
-    - prep_time_minutes (integer): Total preparation time
-    - prep_time_breakdown (object): Detailed breakdown of preparation steps and their times in minutes
-    - prep_notes (string or null): Any special preparation notes or tips
-    - total_cooking_time_minutes (integer): Total time needed for cooking
-    - cooking_time_breakdown (object): Detailed breakdown of cooking steps and their times in minutes
-    - soaking_required (boolean): Whether any ingredients need soaking
-    - soaking_time_minutes (integer or null): Time needed for soaking (if applicable)
-    - protein_level (string): Must be exactly "High", "Medium", or "Low"
-    - meal_type_suitability (array of strings): List suitable meal types
-    - dietary_restrictions (array of strings): List applicable dietary restrictions
-    - categories (object): Dictionary with:
-        - meal_type (array of strings): List of suitable meal types
-        - dish_type (array of strings): List of dish types
-        - cooking_method (array of strings): List of cooking methods used
-        - region (array of strings): List of Indian regions this recipe relates to
-        
-    Important Notes:
-    1. DO NOT modify ingredients or instructions - use them exactly as provided
-    2. For time calculations, analyze each step carefully and provide realistic estimates
-    3. Break down preparation time into specific tasks (e.g., chopping, mixing)
-    4. Break down cooking time into specific steps (e.g., heating oil, sautéing, simmering)
-    5. Base your estimates on standard cooking practices and typical ingredient quantities""" 
+    def __init__(self):
+        self.system_message = """You are a culinary expert AI assistant specializing in recipe analysis and enrichment. Your task is to analyze recipe data and extract structured information.
+
+RULES:
+1. Extract and clean the ingredients and instructions from the input data.
+2. Create clean, numbered lists for ingredients and instructions.
+3. Generate a creative, enticing, and unique summary of the recipe (2-3 sentences maximum) that will make the reader want to cook this recipe. Avoid starting with common and predictable phrases like "Craving a...", "Looking for a...", "This recipe is...", "Imagine biting into...", or similar generic openings. Aim for variety in tone and focus. Highlight a key appealing aspect of the dish, such as its flavor profile, ease of preparation, health benefits, or unique ingredients.
+4. Analyze the recipe for healthiness, ease of cooking, and ingredient availability.
+5. Estimate preparation and cooking times based on the recipe steps.
+6. Categorize the recipe appropriately, providing both structured categories and detailed categorization.
+7. DO NOT modify the ingredients or instructions. Use them exactly as provided in the input.
+8. Preserve all URLs from the original recipe (recipe page URL, image URLs, video URLs).
+9. Format all numerical values consistently.
+10. Provide detailed meal prep guidance for components that can be prepared ahead of time.
+11. Respond ONLY with a valid JSON object containing the requested fields.
+
+For categories, provide a detailed structured object with arrays for each category type (meal_type, dish_type, cooking_method, region, cuisine_type, main_ingredients, special_occasion). Be comprehensive and include multiple values where appropriate. For example, a dish might belong to multiple meal types or use several cooking methods.
+
+Your output must be a SINGLE, valid JSON object with no additional text before or after."""
+
+        self.user_message_template = """Please analyze and enrich the following recipe:
+
+TITLE: {title}
+
+SUMMARY: {summary}
+
+KEYWORDS: {keywords}
+
+TAGS: {tags}
+
+CATEGORIES: {categories}
+
+FULL TEXT: {text}
+
+INGREDIENTS:
+{ingredients}
+
+INSTRUCTIONS:
+{instructions}
+
+WARNING: Use the ingredients and instructions EXACTLY as provided above. Do not modify, clean, or rewrite them.
+
+Please extract and structure this recipe data into a comprehensive JSON format with the following fields:
+- title: The recipe title
+- generated_summary: Generate a creative, enticing, and **unique** summary of the recipe (2-3 sentences maximum) that will make the reader want to cook this recipe. **Avoid starting with common and predictable phrases like "Craving a...", "Looking for a...", "This recipe is...", "Imagine biting into...", or similar generic openings.** Aim for variety in tone and focus. Highlight a key appealing aspect of the dish, such as its flavor profile, ease of preparation, health benefits, or unique ingredients.
+- ingredients: Array of ingredients (preserve original wording and ordering)
+- instructions: Array of cooking steps (preserve original wording and ordering)
+- healthiness_score: One of ["Very Healthy", "Healthy", "Moderate", "Unhealthy", "Very Unhealthy"]
+- ease_of_cooking_score: One of ["Very Easy", "Easy", "Moderate", "Difficult", "Very Difficult"]
+- indian_ingredient_availability_score: One of ["Very High", "High", "Moderate", "Low", "Very Low"]
+- protein_level: One of ["High", "Medium", "Low"]
+- prep_time_minutes: Total preparation time in minutes
+- prep_time_breakdown: Object with preparation steps and their times
+- prep_notes: Any special preparation notes (e.g., tasks that can be done in parallel)
+- total_cooking_time_minutes: Total cooking time in minutes
+- cooking_time_breakdown: Object with cooking steps and their times
+- soaking_required: Boolean indicating if soaking is needed
+- soaking_time_minutes: Soaking time in minutes (if applicable)
+- meal_type_suitability: Array of suitable meal types
+- dietary_restrictions: Array of dietary restrictions this recipe accommodates
+- categories: Object with the following structure:
+  * meal_type: Array of meal types (e.g., ["Curry", "Main Course"])
+  * dish_type: Array of dish types (e.g., ["Vegetable", "Soup", "Stew"])
+  * cooking_method: Array of cooking methods (e.g., ["Pressure Cooking", "Sautéing", "Simmering"])
+  * region: Array of regional cuisines (e.g., ["Indian", "North Indian"])
+  * cuisine_type: Array of specific cuisine styles (e.g., ["Punjabi", "Mughlai", "Street Food"])
+  * main_ingredients: Array of key ingredients that define the dish (e.g., ["Lentils", "Spinach", "Kidney Beans"])
+  * special_occasion: Array of occasions this dish is suitable for (e.g., ["Festival", "Everyday", "Party"])
+- meal_prep_guidance: Goal here is to provide guidance for preparation ahead of time to save cooking time on a busy day, not too much prep ahead of time either to avoid getting overwhelmed on weekend, balance of prep before and at the time of recipe making. This will be object containing:
+ * components_to_prep: Array of recipe components that can be prepared ahead of time
+  * prep_instructions: Object with specific instructions for each component
+  * storage_info: Object with storage methods and estimated shelf life for each component
+  * final_assembly: Instructions for final assembly after meal prep
+  * time_saving_tips: Tips to save time during weekly meal prep
+
+The URLs from the original recipe will be automatically included in the enriched data.
+
+Respond ONLY with the JSON object.""" 
